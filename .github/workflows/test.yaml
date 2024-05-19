@@ -12,4 +12,4 @@ jobs:
         nix_path: nixpkgs=channel:nixos-unstable
     - run: nix-build
     - name: testBuild
-      run:  nix-build default.nix
+      run:  nix-build main.nix
