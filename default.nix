@@ -14,7 +14,7 @@ stdenv.mkDerivation rec {
   };
 
   nativeBuildInputs = [ autoreconfHook ];
-  buildInputs = optionals stdenv.isDarwin [ libiconv ]
+  buildInputs = optionals stdenv.isDarwin [ libiconv ];
 
   meta = {
     description = "Convert HTML to plain text";
