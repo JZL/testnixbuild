@@ -1,4 +1,4 @@
-{ lib, stdenv, fetchFromGitLab, autoreconfHook}:
+{ lib, stdenv, fetchFromGitLab, autoreconfHook, libiconv}:
 
 
 stdenv.mkDerivation rec {
@@ -14,7 +14,8 @@ stdenv.mkDerivation rec {
   };
 
   nativeBuildInputs = [ autoreconfHook ];
-  buildInputs = optionals stdenv.isDarwin [ libiconv ];
+
+  buildInputs = lib.optional stdenv.isDarwin [ libiconv ];
 
   meta = {
     description = "Convert HTML to plain text";
