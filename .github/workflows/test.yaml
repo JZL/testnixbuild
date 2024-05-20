@@ -1,28 +1,14 @@
+
 name: "Test"
 on:
   pull_request:
   push:
 jobs:
-  macosM1:
-    runs-on: macos-latest
-    steps:
-    - uses: actions/checkout@v3
-    - uses: cachix/install-nix-action@v27
-      with:
-        nix_path: nixpkgs=channel:nixos-unstable
-    - name: testBuild
-      run:  nix-build main.nix
-  macos_old:
-    runs-on: macos-13
-    steps:
-    - uses: actions/checkout@v3
-    - uses: cachix/install-nix-action@v27
-      with:
-        nix_path: nixpkgs=channel:nixos-unstable
-    - name: testBuild
-      run:  nix-build main.nix
-  ubuntu:
-    runs-on: ubuntu-latest
+  testAll:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-13]
+    runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
     - uses: cachix/install-nix-action@v27
