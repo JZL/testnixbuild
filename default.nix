@@ -6,6 +6,7 @@
 , libiconv
 , darwin
 , nixosTests
+, protobuf
 }:
 
 rustPlatform.buildRustPackage rec {
@@ -40,6 +41,8 @@ rustPlatform.buildRustPackage rec {
     darwin.apple_sdk_11_0.frameworks.Security
     darwin.apple_sdk_11_0.frameworks.SystemConfiguration
   ];
+
+  env.PROTOC = lib.getExe' protobuf "protoc";
 
   postInstall = ''
     installShellCompletion --cmd atuin \
