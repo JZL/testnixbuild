@@ -23,7 +23,7 @@ rustPlatform.buildRustPackage rec {
   cargoHash =
     if stdenv.isLinux
     then "sha256-K4Vw/d0ZOROWujWr76I3QvfKefLhXLeFufUrgStAyjQ="
-    else "sha256-mCOyo6bKipMfmsowQujeUpog12jXAiqx5CtkwCxquRU=";
+    else "sha256-8NAfE7cGFT64ntNXK9RT0D/MbDJweN7vvsG/KlrY4K4=";
 
   # atuin's default features include 'check-updates', which do not make sense
   # for distribution builds. List all other default features.
