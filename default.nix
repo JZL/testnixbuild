@@ -65,6 +65,7 @@ rustPlatform.buildRustPackage rec {
     "--skip=multi_user_test"
     # Tries to touch files
     "--skip=build_aliases"
+    "--skip=build_vars"
   ];
 
   meta = with lib; {
