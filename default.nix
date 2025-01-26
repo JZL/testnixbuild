@@ -1,78 +1,119 @@
-{ lib
-, stdenv
-, fetchFromGitHub
-, installShellFiles
-, rustPlatform
-, libiconv
-, darwin
+{ lib, stdenv, fetchurl, fetchpatch2, perl, zlib, apr, aprutil, pcre2, libiconv, lynx, which, libxcrypt, buildPackages, pkgsCross, runCommand
 , nixosTests
-, protobuf
+, proxySupport ? true
+, sslSupport ? true, openssl
+, http2Support ? true, nghttp2
+, ldapSupport ? true, openldap
+, libxml2Support ? true, libxml2
+, brotliSupport ? true, brotli
+, luaSupport ? false, lua5
 }:
 
-rustPlatform.buildRustPackage rec {
-  pname = "atuin";
-  version = "18.3.0";
+stdenv.mkDerivation rec {
+  pname = "apache-httpd";
+  version = "2.4.63";
 
-  src = fetchFromGitHub {
-    owner = "atuinsh";
-    repo = "atuin";
-    rev = "v${version}";
-    hash = "sha256-Q3UI1IUD5Jz2O4xj3mFM7DqY3lTy3WhWYPa8QjJHTKE";
+  src = fetchurl {
+    url = "mirror://apache/httpd/httpd-${version}.tar.bz2";
+    hash = "sha256-iPwjarmbKGSySN59SaAI7Cr9dVHmTc6LlfWPMvlMRqs=";
   };
 
-  # TODO: unify this to one hash because updater do not support this
-  cargoHash =
-    if stdenv.isLinux
-    then "sha256-K4Vw/d0ZOROWujWr76I3QvfKefLhXLeFufUrgStAyjQ="
-    else "sha256-8NAfE7cGFT64ntNXK9RT0D/MbDJweN7vvsG/KlrY4K4=";
-
-  # atuin's default features include 'check-updates', which do not make sense
-  # for distribution builds. List all other default features.
-  buildNoDefaultFeatures = true;
-  buildFeatures = [
-    "client" "sync" "server" "clipboard"
+  patches = [
+    # Fix cross-compilation by using CC_FOR_BUILD for generator program
+    # https://issues.apache.org/bugzilla/show_bug.cgi?id=51257#c6
+    (fetchpatch2 {
+      name = "apache-httpd-cross-compile.patch";
+      url = "https://gitlab.com/buildroot.org/buildroot/-/raw/5dae8cddeecf16c791f3c138542ec51c4e627d75/package/apache/0001-cross-compile.patch";
+      hash = "sha256-KGnAa6euOt6dkZQwURyVITcfqTkDkSR8zpE97DywUUw=";
+    })
   ];
 
-  nativeBuildInputs = [ installShellFiles ];
+  # FIXME: -dev depends on -doc
+  outputs = [ "out" "dev" "man" "doc" ];
+  setOutputFlags = false; # it would move $out/modules, etc.
 
-  buildInputs = lib.optionals stdenv.isDarwin [
-    libiconv
-    darwin.apple_sdk_11_0.frameworks.AppKit
-    darwin.apple_sdk_11_0.frameworks.Security
-    darwin.apple_sdk_11_0.frameworks.SystemConfiguration
-  ];
+  depsBuildBuild = [ buildPackages.stdenv.cc ];
 
-  env.PROTOC = lib.getExe' protobuf "protoc";
+  nativeBuildInputs = [ perl which ];
 
-  postInstall = ''
-    installShellCompletion --cmd atuin \
-      --bash <($out/bin/atuin gen-completions -s bash) \
-      --fish <($out/bin/atuin gen-completions -s fish) \
-      --zsh <($out/bin/atuin gen-completions -s zsh)
+  buildInputs = [ perl libxcrypt zlib ] ++
+    lib.optional brotliSupport brotli ++
+    lib.optional sslSupport openssl ++
+    lib.optional ldapSupport openldap ++    # there is no --with-ldap flag
+    lib.optional libxml2Support libxml2 ++
+    lib.optional http2Support nghttp2 ++
+    lib.optional stdenv.hostPlatform.isDarwin libiconv;
+
+  postPatch = ''
+    sed -i config.layout -e "s|installbuilddir:.*|installbuilddir: $dev/share/build|"
+    sed -i configure -e 's|perlbin=.*|perlbin="/usr/bin/env perl"|'
+    sed -i support/apachectl.in -e 's|@LYNX_PATH@|${lynx}/bin/lynx|'
   '';
 
-  passthru.tests = {
-    inherit (nixosTests) atuin;
-  };
+  # Required for ‘pthread_cancel’.
+  NIX_LDFLAGS = lib.optionalString (!stdenv.hostPlatform.isDarwin) "-lgcc_s";
 
-  checkFlags = [
-    # tries to make a network access
-    "--skip=registration"
-    # No such file or directory (os error 2)
-    "--skip=sync"
-    # PermissionDenied (Operation not permitted)
-    "--skip=change_password"
-    "--skip=multi_user_test"
-    # Tries to touch files
-    "--skip=build_aliases"
-    "--skip=build_vars"
+  configureFlags = [
+    "--with-apr=${apr.dev}"
+    "--with-apr-util=${aprutil.dev}"
+    "--with-z=${zlib.dev}"
+    "--with-pcre=${pcre2.dev}/bin/pcre2-config"
+    "--disable-maintainer-mode"
+    "--disable-debugger-mode"
+    "--enable-mods-shared=all"
+    "--enable-mpms-shared=all"
+    "--enable-cern-meta"
+    "--enable-imagemap"
+    "--enable-cgi"
+    "--includedir=${placeholder "dev"}/include"
+    (lib.enableFeature proxySupport "proxy")
+    (lib.enableFeature sslSupport "ssl")
+    (lib.withFeatureAs libxml2Support "libxml2" "${libxml2.dev}/include/libxml2")
+    "--docdir=$(doc)/share/doc"
+
+    (lib.enableFeature brotliSupport "brotli")
+    (lib.withFeatureAs brotliSupport "brotli" brotli)
+
+    (lib.enableFeature http2Support "http2")
+    (lib.withFeature http2Support "nghttp2")
+
+    (lib.enableFeature luaSupport "lua")
+    (lib.withFeatureAs luaSupport "lua" lua5)
+  ] ++ lib.optionals (!stdenv.buildPlatform.canExecute stdenv.hostPlatform) [
+    # skip bad config check when cross compiling
+    # https://gitlab.com/buildroot.org/buildroot/-/blob/5dae8cddeecf16c791f3c138542ec51c4e627d75/package/apache/apache.mk#L23
+    "ap_cv_void_ptr_lt_long=no"
   ];
 
+  enableParallelBuilding = true;
+
+  stripDebugList = [ "lib" "modules" "bin" ];
+
+  postInstall = ''
+    mkdir -p $doc/share/doc/httpd
+    mv $out/manual $doc/share/doc/httpd
+    mkdir -p $dev/bin
+    mv $out/bin/apxs $dev/bin/apxs
+  '';
+
+  passthru = {
+    inherit apr aprutil sslSupport proxySupport ldapSupport luaSupport lua5;
+    tests = {
+      acme-integration = nixosTests.acme;
+      proxy = nixosTests.proxy;
+      php = nixosTests.php.httpd;
+      cross = runCommand "apacheHttpd-test-cross" { } ''
+        ${pkgsCross.aarch64-multiplatform.apacheHttpd.dev}/bin/apxs -q -n INCLUDE | grep CC=aarch64-unknown-linux-gnu-gcc > $out
+        head -n1 ${pkgsCross.aarch64-multiplatform.apacheHttpd}/bin/dbmmanage | grep '^#!${pkgsCross.aarch64-multiplatform.perl}/bin/perl$' >> $out
+      '';
+    };
+  };
+
   meta = with lib; {
-    description = "Replacement for a shell history which records additional commands context with optional encrypted synchronization between machines";
-    homepage = "https://github.com/atuinsh/atuin";
-    license = licenses.mit;
-    maintainers = with maintainers; [ SuperSandro2000 sciencentistguy _0x4A6F ];
-    mainProgram = "atuin";
+    description = "Apache HTTPD, the world's most popular web server";
+    homepage    = "https://httpd.apache.org/";
+    license     = licenses.asl20;
+    platforms   = platforms.linux ++ platforms.darwin;
+    maintainers = with maintainers; [ lovek323 ];
   };
 }
